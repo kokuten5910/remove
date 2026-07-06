@@ -1,8 +1,6 @@
 /** @type {import('next').NextConfig} */
 const nextConfig = {
   reactStrictMode: true,
-  // AIモデルやonnxruntime-webはブラウザ内でのみ実行するため、
-  // サーバーサイドバンドルには含めない
   webpack: (config, { isServer }) => {
     if (isServer) {
       config.externals = [...(config.externals || []), "onnxruntime-node"];
@@ -13,10 +11,13 @@ const nextConfig = {
       path: false,
       crypto: false,
     };
+    if (!isServer) {
+      // onnxruntime-web内のファイルが圧縮処理(Terser)でエラーになるため、
+      // クライアント向けビルドでは圧縮を無効化する（読み込み速度に若干影響するが動作を優先）
+      config.optimization.minimize = false;
+    }
     return config;
   },
-  // SharedArrayBuffer を使った WASM マルチスレッドを有効化するためのヘッダー
-  // （対応ブラウザでは処理が高速化されます。未対応でも動作します）
   async headers() {
     return [
       {
