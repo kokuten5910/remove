@@ -124,13 +124,14 @@ export async function removeBackground(
       const ctx = canvas.getContext("2d");
       if (!ctx) throw new Error("Canvasコンテキストの取得に失敗しました");
 
-      // RawImageのチャンネル数に応じてRGBAデータへ変換
+// RawImageのチャンネル数に応じてRGBAデータへ変換
+      // ※ 常に new Uint8ClampedArray(数値) で新規確保することで、
+      //   ArrayBuffer裏付けの配列であることを保証し、TypeScriptの型エラーを避ける
       const { data, width, height, channels } = rawImage;
-      let rgba: Uint8ClampedArray;
+      const rgba = new Uint8ClampedArray(width * height * 4);
       if (channels === 4) {
-        rgba = new Uint8ClampedArray(data);
+        rgba.set(data);
       } else if (channels === 3) {
-        rgba = new Uint8ClampedArray(width * height * 4);
         for (let i = 0, j = 0; i < data.length; i += 3, j += 4) {
           rgba[j] = data[i];
           rgba[j + 1] = data[i + 1];
@@ -138,7 +139,7 @@ export async function removeBackground(
           rgba[j + 3] = 255;
         }
       } else {
-        rgba = new Uint8ClampedArray(data);
+        rgba.set(data);
       }
 
       const imageData = new ImageData(rgba, width, height);
