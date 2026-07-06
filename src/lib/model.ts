@@ -109,22 +109,24 @@ export async function removeBackground(
 
     onProgress?.(80);
 
-    // transformers.jsのbackground-removalパイプラインはRawImage配列を返す
+// transformers.jsのbackground-removalパイプラインはRawImage配列を返す
     const rawImage = Array.isArray(output) ? output[0] : output;
 
-    let canvas: HTMLCanvasElement;
+    // 環境によっては rawImage.toCanvas() がOffscreenCanvasなど
+    // toBlobを持たないオブジェクトを返すことがあるため、
+    // 必ず自前でHTMLCanvasElementを生成し、そこに描画してから使う
+    const canvas = document.createElement("canvas");
+    canvas.width = rawImage.width;
+    canvas.height = rawImage.height;
+    const ctx = canvas.getContext("2d");
+    if (!ctx) throw new Error("Canvasコンテキストの取得に失敗しました");
 
     if (typeof rawImage.toCanvas === "function") {
-      // RawImageが持つ変換関数が使える場合はそちらを優先（最も確実）
-      canvas = rawImage.toCanvas();
+      // RawImageが持つ変換結果を、自前のcanvasに描画し直す
+      const source = rawImage.toCanvas();
+      ctx.drawImage(source, 0, 0);
     } else {
-      canvas = document.createElement("canvas");
-      canvas.width = rawImage.width;
-      canvas.height = rawImage.height;
-      const ctx = canvas.getContext("2d");
-      if (!ctx) throw new Error("Canvasコンテキストの取得に失敗しました");
-
-// RawImageのチャンネル数に応じてRGBAデータへ変換
+      // RawImageのチャンネル数に応じてRGBAデータへ変換
       // ※ 常に new Uint8ClampedArray(数値) で新規確保することで、
       //   ArrayBuffer裏付けの配列であることを保証し、TypeScriptの型エラーを避ける
       const { data, width, height, channels } = rawImage;
@@ -145,7 +147,7 @@ export async function removeBackground(
       const imageData = new ImageData(rgba, width, height);
       ctx.putImageData(imageData, 0, 0);
     }
-
+    
     const blob: Blob = await new Promise((resolve, reject) => {
       canvas.toBlob((b) => {
         if (b) resolve(b);
