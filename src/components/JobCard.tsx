@@ -5,6 +5,7 @@ import type { ImageJob } from "@/types";
 import { ImageComparison } from "./ImageComparison";
 import { JobProgressBar } from "./ProcessingProgress";
 import { CropModal } from "./CropModal";
+import { RetouchModal } from "./RetouchModal";
 
 interface JobCardProps {
   job: ImageJob;
@@ -15,6 +16,7 @@ interface JobCardProps {
 export function JobCard({ job, onRemove, onCropped }: JobCardProps) {
   const [zoom, setZoom] = useState(1);
   const [showCrop, setShowCrop] = useState(false);
+  const [showRetouch, setShowRetouch] = useState(false);
 
   const handleDownload = () => {
     if (!job.resultUrl) return;
@@ -69,19 +71,27 @@ export function JobCard({ job, onRemove, onCropped }: JobCardProps) {
             </button>
           </div>
 
-          <div className="mt-4 flex flex-col gap-2 sm:flex-row">
+          <div className="mt-4 flex flex-col gap-2">
             <button
               onClick={handleDownload}
-              className="min-h-[48px] flex-1 rounded-xl bg-brand-600 px-4 py-3 text-base font-semibold text-white shadow-sm active:scale-95"
+              className="min-h-[48px] w-full rounded-xl bg-brand-600 px-4 py-3 text-base font-semibold text-white shadow-sm active:scale-95"
             >
               PNGを保存
             </button>
-            <button
-              onClick={() => setShowCrop(true)}
-              className="min-h-[48px] flex-1 rounded-xl border border-neutral-300 px-4 py-3 text-base font-semibold text-neutral-700 dark:border-neutral-600 dark:text-neutral-100"
-            >
-              トリミング
-            </button>
+            <div className="grid grid-cols-2 gap-2">
+              <button
+                onClick={() => setShowRetouch(true)}
+                className="min-h-[48px] rounded-xl border border-neutral-300 px-4 py-3 text-base font-semibold text-neutral-700 dark:border-neutral-600 dark:text-neutral-100"
+              >
+                手直し
+              </button>
+              <button
+                onClick={() => setShowCrop(true)}
+                className="min-h-[48px] rounded-xl border border-neutral-300 px-4 py-3 text-base font-semibold text-neutral-700 dark:border-neutral-600 dark:text-neutral-100"
+              >
+                トリミング
+              </button>
+            </div>
           </div>
         </>
       ) : (
@@ -107,6 +117,18 @@ export function JobCard({ job, onRemove, onCropped }: JobCardProps) {
           onConfirm={(blob) => {
             onCropped(job.id, blob);
             setShowCrop(false);
+          }}
+        />
+      )}
+
+      {showRetouch && job.resultUrl && (
+        <RetouchModal
+          originalUrl={job.originalUrl}
+          resultUrl={job.resultUrl}
+          onCancel={() => setShowRetouch(false)}
+          onConfirm={(blob) => {
+            onCropped(job.id, blob);
+            setShowRetouch(false);
           }}
         />
       )}
