@@ -6,6 +6,7 @@ import { ImageComparison } from "./ImageComparison";
 import { JobProgressBar } from "./ProcessingProgress";
 import { CropModal } from "./CropModal";
 import { RetouchModal } from "./RetouchModal";
+import { EdgeAdjustModal } from "./EdgeAdjustModal";
 
 interface JobCardProps {
   job: ImageJob;
@@ -17,6 +18,7 @@ export function JobCard({ job, onRemove, onCropped }: JobCardProps) {
   const [zoom, setZoom] = useState(1);
   const [showCrop, setShowCrop] = useState(false);
   const [showRetouch, setShowRetouch] = useState(false);
+  const [showEdgeAdjust, setShowEdgeAdjust] = useState(false);
 
   const handleDownload = () => {
     if (!job.resultUrl) return;
@@ -78,16 +80,22 @@ export function JobCard({ job, onRemove, onCropped }: JobCardProps) {
             >
               PNGを保存
             </button>
-            <div className="grid grid-cols-2 gap-2">
+            <div className="grid grid-cols-3 gap-2">
+              <button
+                onClick={() => setShowEdgeAdjust(true)}
+                className="min-h-[48px] rounded-xl border border-neutral-300 px-2 py-3 text-sm font-semibold text-neutral-700 dark:border-neutral-600 dark:text-neutral-100"
+              >
+                境界調整
+              </button>
               <button
                 onClick={() => setShowRetouch(true)}
-                className="min-h-[48px] rounded-xl border border-neutral-300 px-4 py-3 text-base font-semibold text-neutral-700 dark:border-neutral-600 dark:text-neutral-100"
+                className="min-h-[48px] rounded-xl border border-neutral-300 px-2 py-3 text-sm font-semibold text-neutral-700 dark:border-neutral-600 dark:text-neutral-100"
               >
                 手直し
               </button>
               <button
                 onClick={() => setShowCrop(true)}
-                className="min-h-[48px] rounded-xl border border-neutral-300 px-4 py-3 text-base font-semibold text-neutral-700 dark:border-neutral-600 dark:text-neutral-100"
+                className="min-h-[48px] rounded-xl border border-neutral-300 px-2 py-3 text-sm font-semibold text-neutral-700 dark:border-neutral-600 dark:text-neutral-100"
               >
                 トリミング
               </button>
@@ -129,6 +137,17 @@ export function JobCard({ job, onRemove, onCropped }: JobCardProps) {
           onConfirm={(blob) => {
             onCropped(job.id, blob);
             setShowRetouch(false);
+          }}
+        />
+      )}
+
+      {showEdgeAdjust && job.resultUrl && (
+        <EdgeAdjustModal
+          resultUrl={job.resultUrl}
+          onCancel={() => setShowEdgeAdjust(false)}
+          onConfirm={(blob) => {
+            onCropped(job.id, blob);
+            setShowEdgeAdjust(false);
           }}
         />
       )}
