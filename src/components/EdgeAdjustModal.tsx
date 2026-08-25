@@ -1,6 +1,8 @@
 "use client";
 
 import { useEffect, useRef, useState } from "react";
+import { usePreviewBackground, previewBackgroundClassName } from "@/lib/previewBackground";
+import { PreviewBackgroundPicker } from "./PreviewBackgroundPicker";
 
 interface EdgeAdjustModalProps {
   resultUrl: string;
@@ -14,12 +16,6 @@ const DEFAULT_HIGH = 200;
 /**
  * 背景透過後の境界に残る「もやもや」（半透明のグラデーション部分）を
  * スライダーで調整するモーダル。
- *
- * - しきい値(低い方): これより低いアルファ値は完全に透明にする
- * - しきい値(高い方): これより高いアルファ値は完全に不透明にする
- *
- * 元データ（AIが出力した加工前のアルファ値）は保持したままなので、
- * 何度でもスライダーを動かしてやり直せます。
  */
 export function EdgeAdjustModal({ resultUrl, onCancel, onConfirm }: EdgeAdjustModalProps) {
   const canvasRef = useRef<HTMLCanvasElement>(null);
@@ -28,6 +24,7 @@ export function EdgeAdjustModal({ resultUrl, onCancel, onConfirm }: EdgeAdjustMo
   const [lowThreshold, setLowThreshold] = useState(DEFAULT_LOW);
   const [highThreshold, setHighThreshold] = useState(DEFAULT_HIGH);
   const [ready, setReady] = useState(false);
+  const [previewBg, setPreviewBg] = usePreviewBackground();
 
   useEffect(() => {
     let cancelled = false;
@@ -95,7 +92,13 @@ export function EdgeAdjustModal({ resultUrl, onCancel, onConfirm }: EdgeAdjustMo
           輪郭ぎわの半透明部分を、透明・不透明のどちらに寄せるか調整できます
         </p>
 
-        <div className="relative mx-auto overflow-hidden rounded-lg bg-checkerboard bg-checker">
+        <PreviewBackgroundPicker value={previewBg} onChange={setPreviewBg} />
+
+        <div
+          className={`relative mx-auto overflow-hidden rounded-lg ${previewBackgroundClassName(
+            previewBg
+          )}`}
+        >
           <canvas ref={canvasRef} className="block w-full" />
           {!ready && (
             <div className="absolute inset-0 flex items-center justify-center bg-white/60 dark:bg-neutral-900/60">
