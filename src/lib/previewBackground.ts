@@ -2,7 +2,7 @@
 
 import { useEffect, useState } from "react";
 
-export type PreviewBackground = "checker" | "white" | "gray" | "black";
+export type PreviewBackground = "checker" | "white" | "gray" | "black" | "green";
 
 const STORAGE_KEY = "bg-remove-app-preview-bg";
 
@@ -15,7 +15,13 @@ export function usePreviewBackground(): [PreviewBackground, (v: PreviewBackgroun
 
   useEffect(() => {
     const saved = localStorage.getItem(STORAGE_KEY) as PreviewBackground | null;
-    if (saved === "checker" || saved === "white" || saved === "gray" || saved === "black") {
+    if (
+      saved === "checker" ||
+      saved === "white" ||
+      saved === "gray" ||
+      saved === "black" ||
+      saved === "green"
+    ) {
       setBgState(saved);
     }
   }, []);
@@ -37,6 +43,9 @@ export function previewBackgroundClassName(bg: PreviewBackground): string {
       return "bg-neutral-500";
     case "black":
       return "bg-black";
+    case "green":
+      // 透過部分が一目でわかる蛍光グリーン（クロマキー用途にも近い色）
+      return "bg-[#39ff14]";
     case "checker":
     default:
       return "bg-checkerboard bg-checker dark:bg-checkerboard-dark";
