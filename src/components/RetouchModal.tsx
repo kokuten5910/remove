@@ -1,6 +1,8 @@
 "use client";
 
 import { useEffect, useRef, useState } from "react";
+import { usePreviewBackground, previewBackgroundClassName } from "@/lib/previewBackground";
+import { PreviewBackgroundPicker } from "./PreviewBackgroundPicker";
 
 interface RetouchModalProps {
   originalUrl: string;
@@ -20,8 +22,8 @@ const MAX_HISTORY = 15;
  */
 export function RetouchModal({ originalUrl, resultUrl, onCancel, onConfirm }: RetouchModalProps) {
   const containerRef = useRef<HTMLDivElement>(null);
-  const displayCanvasRef = useRef<HTMLCanvasElement>(null); // 画面に表示する作業用canvas
-  const originalCanvasRef = useRef<HTMLCanvasElement | null>(null); // 元画像（復元の色ソース、非表示）
+  const displayCanvasRef = useRef<HTMLCanvasElement>(null);
+  const originalCanvasRef = useRef<HTMLCanvasElement | null>(null);
   const historyRef = useRef<ImageData[]>([]);
   const isDrawingRef = useRef(false);
   const lastPointRef = useRef<{ x: number; y: number } | null>(null);
@@ -31,6 +33,7 @@ export function RetouchModal({ originalUrl, resultUrl, onCancel, onConfirm }: Re
   const [ready, setReady] = useState(false);
   const [cursorPos, setCursorPos] = useState<{ x: number; y: number } | null>(null);
   const [canUndo, setCanUndo] = useState(false);
+  const [previewBg, setPreviewBg] = usePreviewBackground();
 
   useEffect(() => {
     let cancelled = false;
@@ -227,9 +230,13 @@ export function RetouchModal({ originalUrl, resultUrl, onCancel, onConfirm }: Re
           </span>
         </div>
 
+        <PreviewBackgroundPicker value={previewBg} onChange={setPreviewBg} />
+
         <div
           ref={containerRef}
-          className="relative mx-auto touch-none select-none overflow-hidden rounded-lg bg-checkerboard bg-checker"
+          className={`relative mx-auto touch-none select-none overflow-hidden rounded-lg ${previewBackgroundClassName(
+            previewBg
+          )}`}
           onPointerDown={handlePointerDown}
           onPointerMove={handlePointerMove}
           onPointerUp={handlePointerUp}
