@@ -1,6 +1,8 @@
 "use client";
 
 import { useEffect, useRef, useState } from "react";
+import { usePreviewBackground, previewBackgroundClassName } from "@/lib/previewBackground";
+import { PreviewBackgroundPicker } from "./PreviewBackgroundPicker";
 
 interface CropModalProps {
   imageUrl: string;
@@ -24,9 +26,9 @@ export function CropModal({ imageUrl, onCancel, onConfirm }: CropModalProps) {
   const imgRef = useRef<HTMLImageElement>(null);
   const [rect, setRect] = useState<Rect | null>(null);
   const [dragStart, setDragStart] = useState<{ x: number; y: number } | null>(null);
+  const [previewBg, setPreviewBg] = usePreviewBackground();
 
   useEffect(() => {
-    // 画面表示時に前回の選択範囲をリセット
     setRect(null);
   }, [imageUrl]);
 
@@ -100,9 +102,13 @@ export function CropModal({ imageUrl, onCancel, onConfirm }: CropModalProps) {
           トリミング範囲を選択
         </h3>
 
+        <PreviewBackgroundPicker value={previewBg} onChange={setPreviewBg} />
+
         <div
           ref={containerRef}
-          className="relative mx-auto touch-none select-none overflow-hidden rounded-lg bg-checkerboard bg-checker"
+          className={`relative mx-auto touch-none select-none overflow-hidden rounded-lg ${previewBackgroundClassName(
+            previewBg
+          )}`}
           onPointerDown={handlePointerDown}
           onPointerMove={handlePointerMove}
           onPointerUp={handlePointerUp}
