@@ -12,10 +12,11 @@ const OPTIONS: { value: PreviewBackground; label: string; swatchClass: string }[
   { value: "white", label: "白背景", swatchClass: "bg-white border border-neutral-300" },
   { value: "gray", label: "グレー背景", swatchClass: "bg-neutral-500" },
   { value: "black", label: "黒背景", swatchClass: "bg-black" },
+  { value: "green", label: "蛍光グリーン背景", swatchClass: "bg-[#39ff14]" },
 ];
 
 /**
- * プレビューの背景色（市松模様／白／グレー／黒）を切り替える小さなスイッチ。
+ * プレビューの背景色（市松模様／白／グレー／黒／蛍光グリーン）を切り替える小さなスイッチ。
  * イラストの色によって見やすい背景が異なるため、切り替えられるようにしている。
  */
 export function PreviewBackgroundPicker({ value, onChange }: PreviewBackgroundPickerProps) {
