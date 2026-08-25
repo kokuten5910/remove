@@ -14,6 +14,7 @@ interface RetouchModalProps {
 type BrushMode = "erase" | "restore";
 
 const MAX_HISTORY = 15;
+const LOAD_TIMEOUT_MS = 15000;
 
 /**
  * 透過処理後の画像をブラシで手直しするモーダル。
@@ -31,6 +32,7 @@ export function RetouchModal({ originalUrl, resultUrl, onCancel, onConfirm }: Re
   const [mode, setMode] = useState<BrushMode>("erase");
   const [brushSize, setBrushSize] = useState(40);
   const [ready, setReady] = useState(false);
+  const [loadError, setLoadError] = useState<string | null>(null);
   const [cursorPos, setCursorPos] = useState<{ x: number; y: number } | null>(null);
   const [canUndo, setCanUndo] = useState(false);
   const [previewBg, setPreviewBg] = usePreviewBackground();
@@ -39,32 +41,43 @@ export function RetouchModal({ originalUrl, resultUrl, onCancel, onConfirm }: Re
     let cancelled = false;
 
     async function init() {
-      const [originalImg, resultImg] = await Promise.all([
-        loadImage(originalUrl),
-        loadImage(resultUrl),
-      ]);
-      if (cancelled) return;
+      setLoadError(null);
+      setReady(false);
+      try {
+        const [originalImg, resultImg] = await Promise.all([
+          loadImage(originalUrl),
+          loadImage(resultUrl),
+        ]);
+        if (cancelled) return;
 
-      const width = resultImg.naturalWidth;
-      const height = resultImg.naturalHeight;
+        const width = resultImg.naturalWidth;
+        const height = resultImg.naturalHeight;
 
-      const display = displayCanvasRef.current;
-      if (!display) return;
-      display.width = width;
-      display.height = height;
-      const dctx = display.getContext("2d");
-      dctx?.drawImage(resultImg, 0, 0, width, height);
+        const display = displayCanvasRef.current;
+        if (!display) return;
+        display.width = width;
+        display.height = height;
+        const dctx = display.getContext("2d");
+        dctx?.drawImage(resultImg, 0, 0, width, height);
 
-      const originalCanvas = document.createElement("canvas");
-      originalCanvas.width = width;
-      originalCanvas.height = height;
-      const octx = originalCanvas.getContext("2d");
-      octx?.drawImage(originalImg, 0, 0, width, height);
-      originalCanvasRef.current = originalCanvas;
+        const originalCanvas = document.createElement("canvas");
+        originalCanvas.width = width;
+        originalCanvas.height = height;
+        const octx = originalCanvas.getContext("2d");
+        octx?.drawImage(originalImg, 0, 0, width, height);
+        originalCanvasRef.current = originalCanvas;
 
-      historyRef.current = [];
-      setCanUndo(false);
-      setReady(true);
+        historyRef.current = [];
+        setCanUndo(false);
+        setReady(true);
+      } catch (err) {
+        if (!cancelled) {
+          console.error(err);
+          setLoadError(
+            err instanceof Error ? err.message : "画像の読み込みに失敗しました"
+          );
+        }
+      }
     }
 
     init();
@@ -190,110 +203,125 @@ export function RetouchModal({ originalUrl, resultUrl, onCancel, onConfirm }: Re
           透過範囲を手直し
         </h3>
 
-        <div className="mb-3 flex gap-2">
-          <button
-            onClick={() => setMode("erase")}
-            className={`flex-1 rounded-xl px-3 py-2 text-sm font-semibold ${
-              mode === "erase"
-                ? "bg-brand-600 text-white"
-                : "border border-neutral-300 text-neutral-600 dark:border-neutral-600 dark:text-neutral-300"
-            }`}
-          >
-            消す（透過にする）
-          </button>
-          <button
-            onClick={() => setMode("restore")}
-            className={`flex-1 rounded-xl px-3 py-2 text-sm font-semibold ${
-              mode === "restore"
-                ? "bg-brand-600 text-white"
-                : "border border-neutral-300 text-neutral-600 dark:border-neutral-600 dark:text-neutral-300"
-            }`}
-          >
-            復元する（元に戻す）
-          </button>
-        </div>
-
-        <div className="mb-3 flex items-center gap-3">
-          <span className="w-16 shrink-0 text-xs text-neutral-500 dark:text-neutral-400">
-            ブラシサイズ
-          </span>
-          <input
-            type="range"
-            min={10}
-            max={120}
-            value={brushSize}
-            onChange={(e) => setBrushSize(Number(e.target.value))}
-            className="flex-1 accent-brand-600"
-          />
-          <span className="w-8 text-right text-xs text-neutral-500 dark:text-neutral-400">
-            {brushSize}
-          </span>
-        </div>
-
-        <PreviewBackgroundPicker value={previewBg} onChange={setPreviewBg} />
-
-        <div
-          ref={containerRef}
-          className={`relative mx-auto touch-none select-none overflow-hidden rounded-lg ${previewBackgroundClassName(
-            previewBg
-          )}`}
-          onPointerDown={handlePointerDown}
-          onPointerMove={handlePointerMove}
-          onPointerUp={handlePointerUp}
-          onPointerLeave={() => {
-            handlePointerUp();
-            setCursorPos(null);
-          }}
-        >
-          <canvas ref={displayCanvasRef} className="block w-full" />
-          {!ready && (
-            <div className="absolute inset-0 flex items-center justify-center bg-white/60 dark:bg-neutral-900/60">
-              <div className="h-6 w-6 animate-spin rounded-full border-4 border-brand-500 border-t-transparent" />
+        {loadError ? (
+          <div className="rounded-xl bg-red-50 p-4 text-sm text-red-700 dark:bg-red-900/20 dark:text-red-300">
+            <p className="font-semibold">画像を読み込めませんでした</p>
+            <p className="mt-1 text-xs opacity-80">{loadError}</p>
+            <button
+              onClick={onCancel}
+              className="mt-3 min-h-[40px] rounded-xl border border-red-300 px-4 py-2 text-sm font-medium text-red-700 dark:border-red-700 dark:text-red-200"
+            >
+              閉じる
+            </button>
+          </div>
+        ) : (
+          <>
+            <div className="mb-3 flex gap-2">
+              <button
+                onClick={() => setMode("erase")}
+                className={`flex-1 rounded-xl px-3 py-2 text-sm font-semibold ${
+                  mode === "erase"
+                    ? "bg-brand-600 text-white"
+                    : "border border-neutral-300 text-neutral-600 dark:border-neutral-600 dark:text-neutral-300"
+                }`}
+              >
+                消す（透過にする）
+              </button>
+              <button
+                onClick={() => setMode("restore")}
+                className={`flex-1 rounded-xl px-3 py-2 text-sm font-semibold ${
+                  mode === "restore"
+                    ? "bg-brand-600 text-white"
+                    : "border border-neutral-300 text-neutral-600 dark:border-neutral-600 dark:text-neutral-300"
+                }`}
+              >
+                復元する（元に戻す）
+              </button>
             </div>
-          )}
-          {cursorPos && (
+
+            <div className="mb-3 flex items-center gap-3">
+              <span className="w-16 shrink-0 text-xs text-neutral-500 dark:text-neutral-400">
+                ブラシサイズ
+              </span>
+              <input
+                type="range"
+                min={10}
+                max={120}
+                value={brushSize}
+                onChange={(e) => setBrushSize(Number(e.target.value))}
+                className="flex-1 accent-brand-600"
+              />
+              <span className="w-8 text-right text-xs text-neutral-500 dark:text-neutral-400">
+                {brushSize}
+              </span>
+            </div>
+
+            <PreviewBackgroundPicker value={previewBg} onChange={setPreviewBg} />
+
             <div
-              className={`pointer-events-none absolute rounded-full border-2 ${
-                mode === "erase" ? "border-red-500" : "border-green-500"
-              }`}
-              style={{
-                left: cursorPos.x - displayBrushSize / 2,
-                top: cursorPos.y - displayBrushSize / 2,
-                width: displayBrushSize,
-                height: displayBrushSize,
+              ref={containerRef}
+              className={`relative mx-auto touch-none select-none overflow-hidden rounded-lg ${previewBackgroundClassName(
+                previewBg
+              )}`}
+              onPointerDown={handlePointerDown}
+              onPointerMove={handlePointerMove}
+              onPointerUp={handlePointerUp}
+              onPointerLeave={() => {
+                handlePointerUp();
+                setCursorPos(null);
               }}
-            />
-          )}
-        </div>
+            >
+              <canvas ref={displayCanvasRef} className="block w-full" />
+              {!ready && (
+                <div className="absolute inset-0 flex items-center justify-center bg-white/60 dark:bg-neutral-900/60">
+                  <div className="h-6 w-6 animate-spin rounded-full border-4 border-brand-500 border-t-transparent" />
+                </div>
+              )}
+              {cursorPos && (
+                <div
+                  className={`pointer-events-none absolute rounded-full border-2 ${
+                    mode === "erase" ? "border-red-500" : "border-green-500"
+                  }`}
+                  style={{
+                    left: cursorPos.x - displayBrushSize / 2,
+                    top: cursorPos.y - displayBrushSize / 2,
+                    width: displayBrushSize,
+                    height: displayBrushSize,
+                  }}
+                />
+              )}
+            </div>
 
-        <div className="mt-2 flex items-center justify-between">
-          <p className="text-xs text-neutral-500 dark:text-neutral-400">
-            指やマウスでなぞって調整してください
-          </p>
-          <button
-            onClick={handleUndo}
-            disabled={!canUndo}
-            className="text-xs font-medium text-neutral-500 underline disabled:opacity-30 dark:text-neutral-400"
-          >
-            一つ戻す
-          </button>
-        </div>
+            <div className="mt-2 flex items-center justify-between">
+              <p className="text-xs text-neutral-500 dark:text-neutral-400">
+                指やマウスでなぞって調整してください
+              </p>
+              <button
+                onClick={handleUndo}
+                disabled={!canUndo}
+                className="text-xs font-medium text-neutral-500 underline disabled:opacity-30 dark:text-neutral-400"
+              >
+                一つ戻す
+              </button>
+            </div>
 
-        <div className="mt-4 flex justify-end gap-3">
-          <button
-            onClick={onCancel}
-            className="min-h-[44px] rounded-xl px-4 py-2 text-sm font-medium text-neutral-600 hover:bg-neutral-100 dark:text-neutral-300 dark:hover:bg-neutral-800"
-          >
-            キャンセル
-          </button>
-          <button
-            onClick={handleConfirm}
-            disabled={!ready}
-            className="min-h-[44px] rounded-xl bg-brand-600 px-5 py-2 text-sm font-semibold text-white shadow-sm active:scale-95 disabled:opacity-50"
-          >
-            この内容で保存
-          </button>
-        </div>
+            <div className="mt-4 flex justify-end gap-3">
+              <button
+                onClick={onCancel}
+                className="min-h-[44px] rounded-xl px-4 py-2 text-sm font-medium text-neutral-600 hover:bg-neutral-100 dark:text-neutral-300 dark:hover:bg-neutral-800"
+              >
+                キャンセル
+              </button>
+              <button
+                onClick={handleConfirm}
+                disabled={!ready}
+                className="min-h-[44px] rounded-xl bg-brand-600 px-5 py-2 text-sm font-semibold text-white shadow-sm active:scale-95 disabled:opacity-50"
+              >
+                この内容で保存
+              </button>
+            </div>
+          </>
+        )}
       </div>
     </div>
   );
@@ -302,9 +330,21 @@ export function RetouchModal({ originalUrl, resultUrl, onCancel, onConfirm }: Re
 function loadImage(url: string): Promise<HTMLImageElement> {
   return new Promise((resolve, reject) => {
     const img = new Image();
-    img.crossOrigin = "anonymous";
-    img.onload = () => resolve(img);
-    img.onerror = reject;
+    const timeoutId = setTimeout(() => {
+      reject(new Error("画像の読み込みがタイムアウトしました（15秒経過）"));
+    }, LOAD_TIMEOUT_MS);
+
+    img.onload = () => {
+      clearTimeout(timeoutId);
+      resolve(img);
+    };
+    img.onerror = () => {
+      clearTimeout(timeoutId);
+      reject(new Error("画像の読み込み中にエラーが発生しました"));
+    };
+    // 注意: crossOrigin="anonymous" は端末内のblob URLに対して
+    // 一部のモバイルブラウザ（特にiOS Safari系）でload/errorどちらの
+    // イベントも発火せず、無限に読み込み中のまま固まる不具合があるため付けない
     img.src = url;
   });
 }
