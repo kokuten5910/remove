@@ -1,7 +1,3 @@
-bash
-
-mkdir -p /home/claude/bg-remove-app/src/components
-cat > /home/claude/bg-remove-app/src/components/RetouchModal.tsx << 'EOF'
 "use client";
 
 import { useEffect, useRef, useState } from "react";
@@ -458,8 +454,3 @@ function loadImage(url: string): Promise<HTMLImageElement> {
     img.src = url;
   });
 }
-EOF
-echo done
-出力
-
-done
