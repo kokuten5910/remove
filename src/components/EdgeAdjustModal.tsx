@@ -26,6 +26,7 @@ export function EdgeAdjustModal({ resultUrl, onCancel, onConfirm }: EdgeAdjustMo
   const canvasRef = useRef<HTMLCanvasElement>(null);
   const originalDataRef = useRef<ImageData | null>(null);
   const dragStartRef = useRef<{ pointer: Point; pan: Point } | null>(null);
+  const containerRef = useRef<HTMLDivElement>(null);
 
   const [lowThreshold, setLowThreshold] = useState(DEFAULT_LOW);
   const [highThreshold, setHighThreshold] = useState(DEFAULT_HIGH);
@@ -79,6 +80,35 @@ export function EdgeAdjustModal({ resultUrl, onCancel, onConfirm }: EdgeAdjustMo
     ctx.putImageData(new ImageData(data, canvas.width, canvas.height), 0, 0);
   }, [lowThreshold, highThreshold, ready]);
 
+  // PC: マウスホイール／トラックパッドのピンチ操作でカーソル位置を中心に拡大縮小
+  useEffect(() => {
+    const el = containerRef.current;
+    if (!el) return;
+
+    const handleWheelNative = (e: WheelEvent) => {
+      e.preventDefault();
+      const bounds = el.getBoundingClientRect();
+      const cursor = { x: e.clientX - bounds.left, y: e.clientY - bounds.top };
+      const factor = e.deltaY < 0 ? 1.1 : 0.9;
+
+      setZoom((prevZoom) => {
+        const newZoom = Math.min(Math.max(prevZoom * factor, MIN_ZOOM), MAX_ZOOM);
+        setPan((prevPan) => {
+          const contentX = (cursor.x - prevPan.x) / prevZoom;
+          const contentY = (cursor.y - prevPan.y) / prevZoom;
+          return {
+            x: cursor.x - contentX * newZoom,
+            y: cursor.y - contentY * newZoom,
+          };
+        });
+        return newZoom;
+      });
+    };
+
+    el.addEventListener("wheel", handleWheelNative, { passive: false });
+    return () => el.removeEventListener("wheel", handleWheelNative);
+  }, []);
+
   const handleReset = () => {
     setLowThreshold(DEFAULT_LOW);
     setHighThreshold(DEFAULT_HIGH);
@@ -103,7 +133,7 @@ export function EdgeAdjustModal({ resultUrl, onCancel, onConfirm }: EdgeAdjustMo
     setPan({ x: 0, y: 0 });
   };
 
-  // 拡大時は指1本のドラッグで表示位置を移動（描画機能がないためシンプルに1本指でOK）
+  // 拡大時はドラッグで表示位置を移動（描画機能がないためマウス・指どちらもそのままでOK）
   const handlePointerDown = (e: React.PointerEvent) => {
     if (zoom <= 1) return;
     (e.target as HTMLElement).setPointerCapture(e.pointerId);
@@ -161,6 +191,7 @@ export function EdgeAdjustModal({ resultUrl, onCancel, onConfirm }: EdgeAdjustMo
         </div>
 
         <div
+          ref={containerRef}
           className={`relative mx-auto touch-none overflow-hidden rounded-lg ${previewBackgroundClassName(
             previewBg
           )}`}
@@ -186,7 +217,7 @@ export function EdgeAdjustModal({ resultUrl, onCancel, onConfirm }: EdgeAdjustMo
         </div>
         {zoom > 1 && (
           <p className="mt-1 text-center text-[11px] text-neutral-400 dark:text-neutral-500">
-            指でドラッグして表示位置を移動できます
+            ドラッグして表示位置を移動できます（PC: ホイールでも拡大縮小できます）
           </p>
         )}
 
