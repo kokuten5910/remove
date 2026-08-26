@@ -1,3 +1,7 @@
+bash
+
+mkdir -p /home/claude/bg-remove-app/src/components
+cat > /home/claude/bg-remove-app/src/components/RetouchModal.tsx << 'EOF'
 "use client";
 
 import { useEffect, useRef, useState } from "react";
@@ -12,14 +16,18 @@ interface RetouchModalProps {
 }
 
 type BrushMode = "erase" | "restore";
+type Point = { x: number; y: number };
 
 const MAX_HISTORY = 15;
 const LOAD_TIMEOUT_MS = 15000;
+const MIN_ZOOM = 1;
+const MAX_ZOOM = 5;
 
 /**
  * 透過処理後の画像をブラシで手直しするモーダル。
  * - 「消す」モード: ブラシでなぞった部分を透明にする
  * - 「復元」モード: ブラシでなぞった部分を元画像のピクセルに戻す（透過を取り消す）
+ * - 指1本: 描画 / 指2本: つまんで拡大縮小・移動（ピンチズーム＆パン）
  */
 export function RetouchModal({ originalUrl, resultUrl, onCancel, onConfirm }: RetouchModalProps) {
   const containerRef = useRef<HTMLDivElement>(null);
@@ -27,15 +35,26 @@ export function RetouchModal({ originalUrl, resultUrl, onCancel, onConfirm }: Re
   const originalCanvasRef = useRef<HTMLCanvasElement | null>(null);
   const historyRef = useRef<ImageData[]>([]);
   const isDrawingRef = useRef(false);
-  const lastPointRef = useRef<{ x: number; y: number } | null>(null);
+  const lastPointRef = useRef<Point | null>(null);
+
+  // ピンチズーム・パン用の状態
+  const pointersRef = useRef<Map<number, Point>>(new Map());
+  const pinchStateRef = useRef<{
+    dist: number;
+    zoom: number;
+    mid: Point;
+    pan: Point;
+  } | null>(null);
 
   const [mode, setMode] = useState<BrushMode>("erase");
   const [brushSize, setBrushSize] = useState(40);
   const [ready, setReady] = useState(false);
   const [loadError, setLoadError] = useState<string | null>(null);
-  const [cursorPos, setCursorPos] = useState<{ x: number; y: number } | null>(null);
+  const [cursorPos, setCursorPos] = useState<Point | null>(null);
   const [canUndo, setCanUndo] = useState(false);
   const [previewBg, setPreviewBg] = usePreviewBackground();
+  const [zoom, setZoom] = useState(1);
+  const [pan, setPan] = useState<Point>({ x: 0, y: 0 });
 
   useEffect(() => {
     let cancelled = false;
@@ -69,6 +88,8 @@ export function RetouchModal({ originalUrl, resultUrl, onCancel, onConfirm }: Re
 
         historyRef.current = [];
         setCanUndo(false);
+        setZoom(1);
+        setPan({ x: 0, y: 0 });
         setReady(true);
       } catch (err) {
         if (!cancelled) {
@@ -105,6 +126,8 @@ export function RetouchModal({ originalUrl, resultUrl, onCancel, onConfirm }: Re
     setCanUndo(historyRef.current.length > 0);
   };
 
+  // canvas.getBoundingClientRect()は現在のズーム・パン(CSS transform)を
+  // 反映した実際の表示サイズを返すため、この計算はズーム中も正しく動く
   const getCanvasPos = (clientX: number, clientY: number) => {
     const display = displayCanvasRef.current;
     if (!display) return { x: 0, y: 0 };
@@ -141,7 +164,7 @@ export function RetouchModal({ originalUrl, resultUrl, onCancel, onConfirm }: Re
     dctx.restore();
   };
 
-  const paintLine = (from: { x: number; y: number }, to: { x: number; y: number }) => {
+  const paintLine = (from: Point, to: Point) => {
     const dist = Math.hypot(to.x - from.x, to.y - from.y);
     const step = Math.max(1, brushSize / 4);
     const steps = Math.max(1, Math.ceil(dist / step));
@@ -151,9 +174,31 @@ export function RetouchModal({ originalUrl, resultUrl, onCancel, onConfirm }: Re
     }
   };
 
+  const distance = (a: Point, b: Point) => Math.hypot(a.x - b.x, a.y - b.y);
+  const midpoint = (a: Point, b: Point) => ({ x: (a.x + b.x) / 2, y: (a.y + b.y) / 2 });
+  const clamp = (v: number, min: number, max: number) => Math.min(Math.max(v, min), max);
+
   const handlePointerDown = (e: React.PointerEvent) => {
-    if (!ready) return;
     (e.target as HTMLElement).setPointerCapture(e.pointerId);
+    pointersRef.current.set(e.pointerId, { x: e.clientX, y: e.clientY });
+
+    if (pointersRef.current.size === 2) {
+      // 2本指: 描画は中断し、ピンチズーム・パンを開始
+      isDrawingRef.current = false;
+      lastPointRef.current = null;
+      const pts = Array.from(pointersRef.current.values());
+      pinchStateRef.current = {
+        dist: distance(pts[0], pts[1]),
+        zoom,
+        mid: midpoint(pts[0], pts[1]),
+        pan,
+      };
+      return;
+    }
+
+    if (pointersRef.current.size > 2) return; // 3本目以降は無視
+
+    if (!ready) return;
     pushHistory();
     isDrawingRef.current = true;
     const pos = getCanvasPos(e.clientX, e.clientY);
@@ -162,6 +207,28 @@ export function RetouchModal({ originalUrl, resultUrl, onCancel, onConfirm }: Re
   };
 
   const handlePointerMove = (e: React.PointerEvent) => {
+    if (pointersRef.current.has(e.pointerId)) {
+      pointersRef.current.set(e.pointerId, { x: e.clientX, y: e.clientY });
+    }
+
+    // 2本指: ピンチズーム・パン
+    if (pointersRef.current.size === 2 && pinchStateRef.current) {
+      const pts = Array.from(pointersRef.current.values());
+      const newDist = distance(pts[0], pts[1]);
+      const newMid = midpoint(pts[0], pts[1]);
+      const ratio = newDist / (pinchStateRef.current.dist || 1);
+      const newZoom = clamp(pinchStateRef.current.zoom * ratio, MIN_ZOOM, MAX_ZOOM);
+      const dx = newMid.x - pinchStateRef.current.mid.x;
+      const dy = newMid.y - pinchStateRef.current.mid.y;
+      setZoom(newZoom);
+      setPan({
+        x: pinchStateRef.current.pan.x + dx,
+        y: pinchStateRef.current.pan.y + dy,
+      });
+      return;
+    }
+
+    // 1本指: ブラシカーソル表示 ＋ 描画中ならなぞる
     const containerBounds = containerRef.current?.getBoundingClientRect();
     if (containerBounds) {
       setCursorPos({
@@ -175,9 +242,15 @@ export function RetouchModal({ originalUrl, resultUrl, onCancel, onConfirm }: Re
     lastPointRef.current = pos;
   };
 
-  const handlePointerUp = () => {
-    isDrawingRef.current = false;
-    lastPointRef.current = null;
+  const handlePointerUp = (e: React.PointerEvent) => {
+    pointersRef.current.delete(e.pointerId);
+    if (pointersRef.current.size < 2) {
+      pinchStateRef.current = null;
+    }
+    if (pointersRef.current.size === 0) {
+      isDrawingRef.current = false;
+      lastPointRef.current = null;
+    }
   };
 
   const handleConfirm = () => {
@@ -188,6 +261,16 @@ export function RetouchModal({ originalUrl, resultUrl, onCancel, onConfirm }: Re
     }, "image/png");
   };
 
+  const handleZoomButton = (delta: number) => {
+    setZoom((z) => clamp(z + delta, MIN_ZOOM, MAX_ZOOM));
+  };
+
+  const handleZoomReset = () => {
+    setZoom(1);
+    setPan({ x: 0, y: 0 });
+  };
+
+  // 画面上のブラシサイズ（表示スケールに合わせて換算。ズーム中も自動で正しくなる）
   const displayBrushSize = (() => {
     const display = displayCanvasRef.current;
     if (!display) return brushSize;
@@ -256,8 +339,33 @@ export function RetouchModal({ originalUrl, resultUrl, onCancel, onConfirm }: Re
               </span>
             </div>
 
-            <PreviewBackgroundPicker value={previewBg} onChange={setPreviewBg} />
+            <div className="mb-2 flex items-center justify-between">
+              <PreviewBackgroundPicker value={previewBg} onChange={setPreviewBg} />
+              <div className="flex items-center gap-1">
+                <button
+                  onClick={() => handleZoomButton(-0.5)}
+                  className="flex h-8 w-8 items-center justify-center rounded-full border border-neutral-300 text-base dark:border-neutral-600"
+                  aria-label="縮小"
+                >
+                  −
+                </button>
+                <button
+                  onClick={handleZoomReset}
+                  className="px-1 text-xs text-neutral-500 dark:text-neutral-400"
+                >
+                  {Math.round(zoom * 100)}%
+                </button>
+                <button
+                  onClick={() => handleZoomButton(0.5)}
+                  className="flex h-8 w-8 items-center justify-center rounded-full border border-neutral-300 text-base dark:border-neutral-600"
+                  aria-label="拡大"
+                >
+                  ＋
+                </button>
+              </div>
+            </div>
 
+            {/* 描画エリア（指1本で描画、指2本でピンチズーム・移動） */}
             <div
               ref={containerRef}
               className={`relative mx-auto touch-none select-none overflow-hidden rounded-lg ${previewBackgroundClassName(
@@ -266,12 +374,17 @@ export function RetouchModal({ originalUrl, resultUrl, onCancel, onConfirm }: Re
               onPointerDown={handlePointerDown}
               onPointerMove={handlePointerMove}
               onPointerUp={handlePointerUp}
-              onPointerLeave={() => {
-                handlePointerUp();
-                setCursorPos(null);
-              }}
+              onPointerCancel={handlePointerUp}
+              onPointerLeave={() => setCursorPos(null)}
             >
-              <canvas ref={displayCanvasRef} className="block w-full" />
+              <div
+                style={{
+                  transform: `translate(${pan.x}px, ${pan.y}px) scale(${zoom})`,
+                  transformOrigin: "0 0",
+                }}
+              >
+                <canvas ref={displayCanvasRef} className="block w-full" />
+              </div>
               {!ready && (
                 <div className="absolute inset-0 flex items-center justify-center bg-white/60 dark:bg-neutral-900/60">
                   <div className="h-6 w-6 animate-spin rounded-full border-4 border-brand-500 border-t-transparent" />
@@ -294,7 +407,7 @@ export function RetouchModal({ originalUrl, resultUrl, onCancel, onConfirm }: Re
 
             <div className="mt-2 flex items-center justify-between">
               <p className="text-xs text-neutral-500 dark:text-neutral-400">
-                指やマウスでなぞって調整してください
+                指1本でなぞる／指2本でつまんで拡大縮小・移動
               </p>
               <button
                 onClick={handleUndo}
@@ -342,9 +455,11 @@ function loadImage(url: string): Promise<HTMLImageElement> {
       clearTimeout(timeoutId);
       reject(new Error("画像の読み込み中にエラーが発生しました"));
     };
-    // 注意: crossOrigin="anonymous" は端末内のblob URLに対して
-    // 一部のモバイルブラウザ（特にiOS Safari系）でload/errorどちらの
-    // イベントも発火せず、無限に読み込み中のまま固まる不具合があるため付けない
     img.src = url;
   });
 }
+EOF
+echo done
+出力
+
+done
