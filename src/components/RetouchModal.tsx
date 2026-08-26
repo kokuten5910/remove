@@ -53,6 +53,9 @@ export function RetouchModal({ originalUrl, resultUrl, onCancel, onConfirm }: Re
     downPos: Point;
   } | null>(null);
 
+  // PC: Altキー押しながらドラッグ／中央ボタンドラッグでの移動用
+  const mousePanRef = useRef<{ start: Point; pan: Point } | null>(null);
+
   const [mode, setMode] = useState<BrushMode>("erase");
   const [brushSize, setBrushSize] = useState(40);
   const [ready, setReady] = useState(false);
@@ -113,6 +116,35 @@ export function RetouchModal({ originalUrl, resultUrl, onCancel, onConfirm }: Re
       cancelled = true;
     };
   }, [originalUrl, resultUrl]);
+
+  // PC: マウスホイール／トラックパッドのピンチ操作でカーソル位置を中心に拡大縮小
+  useEffect(() => {
+    const el = containerRef.current;
+    if (!el) return;
+
+    const handleWheelNative = (e: WheelEvent) => {
+      e.preventDefault();
+      const bounds = el.getBoundingClientRect();
+      const cursor = { x: e.clientX - bounds.left, y: e.clientY - bounds.top };
+      const factor = e.deltaY < 0 ? 1.1 : 0.9;
+
+      setZoom((prevZoom) => {
+        const newZoom = Math.min(Math.max(prevZoom * factor, MIN_ZOOM), MAX_ZOOM);
+        setPan((prevPan) => {
+          const contentX = (cursor.x - prevPan.x) / prevZoom;
+          const contentY = (cursor.y - prevPan.y) / prevZoom;
+          return {
+            x: cursor.x - contentX * newZoom,
+            y: cursor.y - contentY * newZoom,
+          };
+        });
+        return newZoom;
+      });
+    };
+
+    el.addEventListener("wheel", handleWheelNative, { passive: false });
+    return () => el.removeEventListener("wheel", handleWheelNative);
+  }, []);
 
   const pushHistory = () => {
     const display = displayCanvasRef.current;
@@ -201,6 +233,14 @@ export function RetouchModal({ originalUrl, resultUrl, onCancel, onConfirm }: Re
   };
 
   const handlePointerDown = (e: React.PointerEvent) => {
+    // PC: 中央ボタン、またはAltキーを押しながらのドラッグは「移動」として扱う
+    if (e.pointerType === "mouse" && (e.button === 1 || e.altKey)) {
+      e.preventDefault();
+      (e.target as HTMLElement).setPointerCapture(e.pointerId);
+      mousePanRef.current = { start: { x: e.clientX, y: e.clientY }, pan };
+      return;
+    }
+
     (e.target as HTMLElement).setPointerCapture(e.pointerId);
     pointersRef.current.set(e.pointerId, { x: e.clientX, y: e.clientY });
 
@@ -234,6 +274,16 @@ export function RetouchModal({ originalUrl, resultUrl, onCancel, onConfirm }: Re
   };
 
   const handlePointerMove = (e: React.PointerEvent) => {
+    if (mousePanRef.current) {
+      const dx = e.clientX - mousePanRef.current.start.x;
+      const dy = e.clientY - mousePanRef.current.start.y;
+      setPan({
+        x: mousePanRef.current.pan.x + dx,
+        y: mousePanRef.current.pan.y + dy,
+      });
+      return;
+    }
+
     if (pointersRef.current.has(e.pointerId)) {
       pointersRef.current.set(e.pointerId, { x: e.clientX, y: e.clientY });
     }
@@ -285,6 +335,11 @@ export function RetouchModal({ originalUrl, resultUrl, onCancel, onConfirm }: Re
   };
 
   const handlePointerUp = (e: React.PointerEvent) => {
+    if (mousePanRef.current) {
+      mousePanRef.current = null;
+      return;
+    }
+
     // ピンチにならないまま指が離れた（＝タップ）場合は、ここで描画を確定させる
     if (
       pendingDrawRef.current &&
@@ -460,7 +515,7 @@ export function RetouchModal({ originalUrl, resultUrl, onCancel, onConfirm }: Re
 
             <div className="mt-2 flex items-center justify-between">
               <p className="text-xs text-neutral-500 dark:text-neutral-400">
-                指1本でなぞる／指2本でつまんで拡大縮小・移動
+                指1本でなぞる／指2本でつまんで拡大縮小・移動（PC: ホイールで拡大縮小、Alt+ドラッグまたは中央ボタンで移動）
               </p>
               <button
                 onClick={handleUndo}
