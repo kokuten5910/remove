@@ -10,21 +10,29 @@ interface EdgeAdjustModalProps {
   onConfirm: (blob: Blob) => void;
 }
 
+type Point = { x: number; y: number };
+
 const DEFAULT_LOW = 60;
 const DEFAULT_HIGH = 200;
+const MIN_ZOOM = 1;
+const MAX_ZOOM = 5;
 
 /**
  * 背景透過後の境界に残る「もやもや」（半透明のグラデーション部分）を
  * スライダーで調整するモーダル。
+ * 拡大縮小ボタンと、拡大時は指でドラッグして表示位置を移動できる。
  */
 export function EdgeAdjustModal({ resultUrl, onCancel, onConfirm }: EdgeAdjustModalProps) {
   const canvasRef = useRef<HTMLCanvasElement>(null);
   const originalDataRef = useRef<ImageData | null>(null);
+  const dragStartRef = useRef<{ pointer: Point; pan: Point } | null>(null);
 
   const [lowThreshold, setLowThreshold] = useState(DEFAULT_LOW);
   const [highThreshold, setHighThreshold] = useState(DEFAULT_HIGH);
   const [ready, setReady] = useState(false);
   const [previewBg, setPreviewBg] = usePreviewBackground();
+  const [zoom, setZoom] = useState(1);
+  const [pan, setPan] = useState<Point>({ x: 0, y: 0 });
 
   useEffect(() => {
     let cancelled = false;
@@ -40,6 +48,8 @@ export function EdgeAdjustModal({ resultUrl, onCancel, onConfirm }: EdgeAdjustMo
       if (!ctx) return;
       ctx.drawImage(img, 0, 0);
       originalDataRef.current = ctx.getImageData(0, 0, canvas.width, canvas.height);
+      setZoom(1);
+      setPan({ x: 0, y: 0 });
       setReady(true);
     };
     img.src = resultUrl;
@@ -82,6 +92,38 @@ export function EdgeAdjustModal({ resultUrl, onCancel, onConfirm }: EdgeAdjustMo
     }, "image/png");
   };
 
+  const clamp = (v: number, min: number, max: number) => Math.min(Math.max(v, min), max);
+
+  const handleZoomButton = (delta: number) => {
+    setZoom((z) => clamp(z + delta, MIN_ZOOM, MAX_ZOOM));
+  };
+
+  const handleZoomReset = () => {
+    setZoom(1);
+    setPan({ x: 0, y: 0 });
+  };
+
+  // 拡大時は指1本のドラッグで表示位置を移動（描画機能がないためシンプルに1本指でOK）
+  const handlePointerDown = (e: React.PointerEvent) => {
+    if (zoom <= 1) return;
+    (e.target as HTMLElement).setPointerCapture(e.pointerId);
+    dragStartRef.current = { pointer: { x: e.clientX, y: e.clientY }, pan };
+  };
+
+  const handlePointerMove = (e: React.PointerEvent) => {
+    if (!dragStartRef.current) return;
+    const dx = e.clientX - dragStartRef.current.pointer.x;
+    const dy = e.clientY - dragStartRef.current.pointer.y;
+    setPan({
+      x: dragStartRef.current.pan.x + dx,
+      y: dragStartRef.current.pan.y + dy,
+    });
+  };
+
+  const handlePointerUp = () => {
+    dragStartRef.current = null;
+  };
+
   return (
     <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/60 p-4 animate-fade-in">
       <div className="w-full max-w-lg rounded-2xl bg-white p-4 shadow-xl dark:bg-neutral-900">
@@ -92,20 +134,61 @@ export function EdgeAdjustModal({ resultUrl, onCancel, onConfirm }: EdgeAdjustMo
           輪郭ぎわの半透明部分を、透明・不透明のどちらに寄せるか調整できます
         </p>
 
-        <PreviewBackgroundPicker value={previewBg} onChange={setPreviewBg} />
+        <div className="mb-2 flex items-center justify-between">
+          <PreviewBackgroundPicker value={previewBg} onChange={setPreviewBg} />
+          <div className="flex items-center gap-1">
+            <button
+              onClick={() => handleZoomButton(-0.5)}
+              className="flex h-8 w-8 items-center justify-center rounded-full border border-neutral-300 text-base dark:border-neutral-600"
+              aria-label="縮小"
+            >
+              −
+            </button>
+            <button
+              onClick={handleZoomReset}
+              className="px-1 text-xs text-neutral-500 dark:text-neutral-400"
+            >
+              {Math.round(zoom * 100)}%
+            </button>
+            <button
+              onClick={() => handleZoomButton(0.5)}
+              className="flex h-8 w-8 items-center justify-center rounded-full border border-neutral-300 text-base dark:border-neutral-600"
+              aria-label="拡大"
+            >
+              ＋
+            </button>
+          </div>
+        </div>
 
         <div
-          className={`relative mx-auto overflow-hidden rounded-lg ${previewBackgroundClassName(
+          className={`relative mx-auto touch-none overflow-hidden rounded-lg ${previewBackgroundClassName(
             previewBg
           )}`}
+          onPointerDown={handlePointerDown}
+          onPointerMove={handlePointerMove}
+          onPointerUp={handlePointerUp}
+          onPointerCancel={handlePointerUp}
         >
-          <canvas ref={canvasRef} className="block w-full" />
+          <div
+            style={{
+              transform: `translate(${pan.x}px, ${pan.y}px) scale(${zoom})`,
+              transformOrigin: "0 0",
+              cursor: zoom > 1 ? "grab" : "default",
+            }}
+          >
+            <canvas ref={canvasRef} className="block w-full" />
+          </div>
           {!ready && (
             <div className="absolute inset-0 flex items-center justify-center bg-white/60 dark:bg-neutral-900/60">
               <div className="h-6 w-6 animate-spin rounded-full border-4 border-brand-500 border-t-transparent" />
             </div>
           )}
         </div>
+        {zoom > 1 && (
+          <p className="mt-1 text-center text-[11px] text-neutral-400 dark:text-neutral-500">
+            指でドラッグして表示位置を移動できます
+          </p>
+        )}
 
         <div className="mt-4 space-y-3">
           <div>
