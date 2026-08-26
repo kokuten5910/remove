@@ -18,6 +18,10 @@ const MAX_HISTORY = 15;
 const LOAD_TIMEOUT_MS = 15000;
 const MIN_ZOOM = 1;
 const MAX_ZOOM = 5;
+// 指を置いてからこの時間内に2本目が来たらピンチと判定する（描画は保留する）
+const PINCH_DETECT_DELAY_MS = 120;
+// この距離以上動いたら、待たずに即座に描画とみなす
+const MOVE_COMMIT_THRESHOLD = 8;
 
 /**
  * 透過処理後の画像をブラシで手直しするモーダル。
@@ -40,6 +44,13 @@ export function RetouchModal({ originalUrl, resultUrl, onCancel, onConfirm }: Re
     zoom: number;
     mid: Point;
     pan: Point;
+  } | null>(null);
+
+  // 「描画かピンチか」を少し待って判定するための保留状態
+  const pendingDrawRef = useRef<{
+    pointerId: number;
+    timeoutId: number;
+    downPos: Point;
   } | null>(null);
 
   const [mode, setMode] = useState<BrushMode>("erase");
@@ -122,8 +133,6 @@ export function RetouchModal({ originalUrl, resultUrl, onCancel, onConfirm }: Re
     setCanUndo(historyRef.current.length > 0);
   };
 
-  // canvas.getBoundingClientRect()は現在のズーム・パン(CSS transform)を
-  // 反映した実際の表示サイズを返すため、この計算はズーム中も正しく動く
   const getCanvasPos = (clientX: number, clientY: number) => {
     const display = displayCanvasRef.current;
     if (!display) return { x: 0, y: 0 };
@@ -174,12 +183,33 @@ export function RetouchModal({ originalUrl, resultUrl, onCancel, onConfirm }: Re
   const midpoint = (a: Point, b: Point) => ({ x: (a.x + b.x) / 2, y: (a.y + b.y) / 2 });
   const clamp = (v: number, min: number, max: number) => Math.min(Math.max(v, min), max);
 
+  /** 保留していた描画を確定する（実際にpushHistory＋描き始めを行う） */
+  const commitPendingDraw = (pointerId: number) => {
+    if (!pendingDrawRef.current || pendingDrawRef.current.pointerId !== pointerId) return;
+    clearTimeout(pendingDrawRef.current.timeoutId);
+    pendingDrawRef.current = null;
+
+    // 確定する時点でまだ指1本だけであることを確認（2本目が来ていたら描かない）
+    if (pointersRef.current.size !== 1 || !pointersRef.current.has(pointerId)) return;
+
+    const raw = pointersRef.current.get(pointerId)!;
+    const pos = getCanvasPos(raw.x, raw.y);
+    pushHistory();
+    isDrawingRef.current = true;
+    lastPointRef.current = pos;
+    paintAt(pos.x, pos.y);
+  };
+
   const handlePointerDown = (e: React.PointerEvent) => {
     (e.target as HTMLElement).setPointerCapture(e.pointerId);
     pointersRef.current.set(e.pointerId, { x: e.clientX, y: e.clientY });
 
     if (pointersRef.current.size === 2) {
-      // 2本指: 描画は中断し、ピンチズーム・パンを開始
+      // 2本目が来た＝ピンチ確定。保留していた描画開始があればキャンセルする
+      if (pendingDrawRef.current) {
+        clearTimeout(pendingDrawRef.current.timeoutId);
+        pendingDrawRef.current = null;
+      }
       isDrawingRef.current = false;
       lastPointRef.current = null;
       const pts = Array.from(pointersRef.current.values());
@@ -195,11 +225,12 @@ export function RetouchModal({ originalUrl, resultUrl, onCancel, onConfirm }: Re
     if (pointersRef.current.size > 2) return; // 3本目以降は無視
 
     if (!ready) return;
-    pushHistory();
-    isDrawingRef.current = true;
-    const pos = getCanvasPos(e.clientX, e.clientY);
-    lastPointRef.current = pos;
-    paintAt(pos.x, pos.y);
+
+    // すぐには描き始めず、少し待って2本目が来ないか確認する
+    const pointerId = e.pointerId;
+    const downPos = { x: e.clientX, y: e.clientY };
+    const timeoutId = window.setTimeout(() => commitPendingDraw(pointerId), PINCH_DETECT_DELAY_MS);
+    pendingDrawRef.current = { pointerId, timeoutId, downPos };
   };
 
   const handlePointerMove = (e: React.PointerEvent) => {
@@ -224,6 +255,21 @@ export function RetouchModal({ originalUrl, resultUrl, onCancel, onConfirm }: Re
       return;
     }
 
+    // 保留中に一定以上動いたら、待たずに即座に描画とみなして確定する
+    if (
+      pendingDrawRef.current &&
+      pendingDrawRef.current.pointerId === e.pointerId &&
+      pointersRef.current.size === 1
+    ) {
+      const moved = distance(pendingDrawRef.current.downPos, { x: e.clientX, y: e.clientY });
+      if (moved > MOVE_COMMIT_THRESHOLD) {
+        commitPendingDraw(e.pointerId);
+        const pos = getCanvasPos(e.clientX, e.clientY);
+        if (lastPointRef.current) paintLine(lastPointRef.current, pos);
+        lastPointRef.current = pos;
+      }
+    }
+
     // 1本指: ブラシカーソル表示 ＋ 描画中ならなぞる
     const containerBounds = containerRef.current?.getBoundingClientRect();
     if (containerBounds) {
@@ -239,6 +285,18 @@ export function RetouchModal({ originalUrl, resultUrl, onCancel, onConfirm }: Re
   };
 
   const handlePointerUp = (e: React.PointerEvent) => {
+    // ピンチにならないまま指が離れた（＝タップ）場合は、ここで描画を確定させる
+    if (
+      pendingDrawRef.current &&
+      pendingDrawRef.current.pointerId === e.pointerId &&
+      pointersRef.current.size === 1
+    ) {
+      commitPendingDraw(e.pointerId);
+    } else if (pendingDrawRef.current && pendingDrawRef.current.pointerId === e.pointerId) {
+      clearTimeout(pendingDrawRef.current.timeoutId);
+      pendingDrawRef.current = null;
+    }
+
     pointersRef.current.delete(e.pointerId);
     if (pointersRef.current.size < 2) {
       pinchStateRef.current = null;
@@ -266,7 +324,6 @@ export function RetouchModal({ originalUrl, resultUrl, onCancel, onConfirm }: Re
     setPan({ x: 0, y: 0 });
   };
 
-  // 画面上のブラシサイズ（表示スケールに合わせて換算。ズーム中も自動で正しくなる）
   const displayBrushSize = (() => {
     const display = displayCanvasRef.current;
     if (!display) return brushSize;
